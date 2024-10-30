@@ -256,18 +256,82 @@ Definition state_inv γ (l : loc) (x : Z) : iProp Σ :=
 *)
 Lemma thread_spec γ l (x : Z) : {{{inv N (state_inv γ l x)}}} #l <- !#l + #1 {{{RET #(); own γ Final}}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros (Φ) "#I HΦ".
+  wp_bind (! _)%E.
+  iInv N as ">(%y & Hl & H)".
+  iAssert ⌜x ≤ y⌝%Z%I with "[H]" as "%H".
+  {
+    iDestruct "H" as "[[Hγ <-]|[Hγ %H]]".
+    - done.
+    - iPureIntro. lia.
+  }
+  wp_load.
+  iModIntro.
+  iSplitL "Hl H".
+  { iExists y. iFrame. }
+  wp_pures.
+  iInv N as ">(%z & Hl & H)".
+  iAssert (∃ s, own γ s)%I with "[H]" as (s) "Hγ".
+  {
+    iDestruct "H" as "[[Hγ _]|[Hγ _]]".
+    - by iExists Start.
+    - by iExists Final.
+  }
+  wp_store.
+  iMod (state_bupd with "Hγ") as "#Hγ".
+  iModIntro.
+  iSplitR "HΦ"; last by iApply "HΦ".
+  iNext.
+  iExists (y + 1)%Z.
+  iFrame.
+  iRight.
+  iFrame "Hγ".
+  iPureIntro.
+  lia.
+Qed.
 
 Lemma body_spec l (x : Z) : {{{l ↦ #x}}} (#l <- !#l + #1) ||| (#l <- !#l + #1);; !#l {{{(y : Z), RET #y; ⌜x < y⌝%Z}}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros (Φ) "Hl HΦ".
+  iMod alloc_Start as (γ) "Hγ".
+  iMod (inv_alloc N _ (state_inv γ l x) with "[Hl Hγ]") as "#HI".
+  {
+    iNext.
+    iExists x.
+    iFrame.
+    iLeft.
+    by iFrame.
+  }
+  wp_pures.
+  wp_apply (par_spec (λ _, own γ Final) (λ _, own γ Final)).
+  - wp_pures.
+    wp_apply (thread_spec with "HI") as "$".
+  - wp_pures.
+    wp_apply (thread_spec with "HI") as "$".
+  - iIntros (v1 v2) "[Hγ _] !>".
+    wp_pures.
+    iInv N as ">(%y & Hl & [[Hγ' _]|[_ %H]])".
+    + iDestruct (own_valid_2 with "Hγ Hγ'") as "%H".
+      cbv in H.
+      done.
+    + wp_load.
+      iModIntro.
+      iSplitL "Hγ Hl".
+      { iNext. iExists y. iFrame. iRight. by iFrame "% #". }
+      by iApply "HΦ".
+Qed.
 
 Lemma prog_spec : {{{True}}} prog {{{(y : Z), RET #y; ⌜5 ≤ y⌝%Z}}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros (Φ) "_ HΦ".
+  rewrite /prog.
+  wp_alloc l as "Hl".
+  wp_let.
+  wp_apply (body_spec with "Hl") as (y) "%H".
+  iApply "HΦ".
+  iPureIntro.
+  lia.
+Qed.
 
 End proofs.
 

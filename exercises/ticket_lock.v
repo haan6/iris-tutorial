@@ -61,8 +61,8 @@ Definition release : val :=
   specifications to figure out exactly what needs to be proven.
 *)
 
-Definition RA : cmra
-  (* := insert your definition here *). Admitted.
+Definition RA : cmra :=
+  authR (prodUR (optionUR (exclR natO)) (gset_disjR nat)).
 
 Section proofs.
 Context `{!heapGS Σ, !inG Σ RA}.
@@ -73,28 +73,38 @@ Let N := nroot .@ "ticket_lock".
   specific ticket. As such, we first define a predicate [locked_by]
   which states that the lock is locked by ticket [o].
 *)
-Definition locked_by (γ : gname) (o : nat) : iProp Σ
-  (* := insert your definition here *). Admitted.
-
+Definition locked_by (γ : gname) (o : nat) : iProp Σ :=
+ own γ (◯ (Excl' o, GSet ∅)).
+ 
 (** The lock is locked when it has been locked by some ticket. *)
 Definition locked (γ : gname) : iProp Σ :=
   ∃ o, locked_by γ o.
 
 Lemma locked_excl γ : locked γ -∗ locked γ -∗ False.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros "[%o1 H1] [%o2 H2]".
+  iPoseProof (own_valid_2 with "H1 H2") as "%H".
+  rewrite auth_frag_valid /= in H.
+  rewrite pair_valid /= in H.
+  by destruct H as [H _].
+Qed.
 
 (**
   We will also have a predicate signifying that ticket [x] has been
   _issued_. A thread will need to have been issued ticket [x] in order
   to wait for the first counter to become [x].
 *)
-Definition issued (γ : gname) (x : nat) : iProp Σ
-  (* := insert your definition here *). Admitted.
+Definition issued (γ : gname) (x : nat) : iProp Σ :=
+  own γ (◯ (ε : option (excl nat), GSet {[x]})).
 
-Definition lock_inv (γ : gname) (lo ln : loc) (P : iProp Σ) : iProp Σ
-  (* := insert your definition here *). Admitted.
+Definition lock_inv (γ : gname) (lo ln : loc) (P : iProp Σ) : iProp Σ :=
+  ∃ o n : nat, lo ↦ #o ∗ ln ↦ #n ∗
+  own γ (● (Excl' o, GSet (set_seq 0 n))) ∗
+  (
+    (locked_by γ o ∗ P) ∨
+    issued γ o
+  ).
+
 
 Definition is_lock (γ : gname) (l : val) (P : iProp Σ) : iProp Σ :=
   ∃ lo ln : loc, ⌜l = (#lo, #ln)%V⌝ ∗ inv N (lock_inv γ lo ln P).
@@ -105,27 +115,172 @@ Definition is_lock (γ : gname) (l : val) (P : iProp Σ) : iProp Σ :=
 Lemma mk_lock_spec P :
   {{{ P }}} mk_lock #() {{{ γ l, RET l; is_lock γ l P }}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros "%Φ P HΦ".
+  wp_lam; wp_alloc l1 as "Hl1"; wp_alloc l2 as "Hl2".
+  wp_pures.
+  iMod (own_alloc (● (Excl' 0, GSet ∅) ⋅ ◯ (Excl' 0, GSet ∅))) as "(%γ & Hγ & Ho)".
+  { by apply auth_both_valid_discrete. }
+  iApply ("HΦ" $! γ).
+  iExists l2, l1.
+  iSplitR; first done.
+  iApply inv_alloc.
+  iNext.
+  iExists 0, 0.
+  iFrame.
+  iLeft.
+  iFrame.
+Qed. 
 
 Lemma wait_spec γ l P x :
   {{{ is_lock γ l P ∗ issued γ x }}}
     wait #x l
   {{{ RET #(); locked γ ∗ P }}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros "%Φ [(%lo & %ln & -> & #I) Hx] HΦ".
+  iLöb as "IH".
+  wp_lam; wp_pures.
+  wp_bind (! _)%E.
+  iInv "I" as "(%o & %n & Hlo & Hln & Hγ)".
+  wp_load.
+  destruct (decide (#o = #x)).
+  - injection e as e.
+    apply (inj Z.of_nat) in e.
+    subst x.
+    iDestruct "Hγ" as "[Hγ [[Hexcl HP]|Ho]]".
+    + iSplitL "Hlo Hln Hγ Hx".
+      { iIntros "!> !>". iExists o, n. iFrame. }
+      iModIntro.
+      wp_pures.
+      rewrite bool_decide_eq_true_2 //.
+      wp_pures.
+      iApply "HΦ".
+      iFrame "HP".
+      by iExists o.
+    + iPoseProof (own_valid_2 with "Hx Ho") as "%H".
+      rewrite auth_frag_valid /= in H.
+      rewrite pair_valid /= in H.
+      destruct H as [_ H].
+      apply gset_disj_valid_op in H.
+      by rewrite disjoint_singleton_l elem_of_singleton in H.
+  - iSplitL "Hlo Hln Hγ".
+    { iIntros "!> !>". iExists o, n. iFrame. }
+    iModIntro.
+    wp_pures.
+    rewrite bool_decide_eq_false_2 //.
+    wp_pures.
+    iApply ("IH" with "Hx HΦ").
+Qed.
 
 Lemma acquire_spec γ l P :
   {{{ is_lock γ l P }}} acquire l {{{ RET #(); locked γ ∗ P }}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros "%Φ (%lo & %ln & -> & #I) HΦ".
+  iLöb as "IH".
+  wp_rec.
+  wp_pures.
+  wp_bind (! _)%E.
+  iInv "I" as "(%o & %n & Hlo & Hln & Hγ)".
+  wp_load.
+  iSplitL "Hlo Hln Hγ".
+  { iIntros "!> !>". iExists o, n. iFrame. }
+  clear o.
+  iModIntro.
+  wp_pures.
+  wp_bind (CmpXchg _ _ _).
+  iInv "I" as "(%o & %n' & Hlo & Hln & Hγ)".
+  destruct (decide (#n' = #n)).
+  - injection e as e.
+    apply (inj Z.of_nat) in e.
+    subst n'.
+    wp_cmpxchg_suc.
+    rewrite Z.add_comm -(Nat2Z.inj_add 1) /=.
+    iDestruct "Hγ" as "[Hγ Hγ']".
+    iMod (own_update _ _ (● (Excl' o, GSet (set_seq 0 (S n))) ⋅ ◯ (ε, GSet {[n]})) with "Hγ") as "[Hγ Hn]".
+    {
+      apply auth_update_alloc.
+      apply prod_local_update_2.
+      rewrite set_seq_S_end_union_L.
+      rewrite -gset_disj_union.
+      2: { apply set_seq_S_end_disjoint. }
+      rewrite -{2}(ucmra_unit_right_id (GSet {[n]})).
+      apply gset_disj_alloc_op_local_update.
+      apply (set_seq_S_end_disjoint 0).
+    }
+    iSplitL "Hlo Hln Hγ Hγ'".
+    { iIntros "!> !>". iExists o, (S n). iFrame. }
+    iModIntro.
+    wp_pures.
+    wp_apply (wait_spec with "[I $Hn]").
+    + iExists lo, ln.
+      by iFrame "I".
+    + done.
+  - wp_cmpxchg_fail.
+    iModIntro.
+    iSplitL "Hlo Hln Hγ".
+    { iNext. iExists o, n'. iFrame. }
+    wp_pures.
+    by iApply "IH".
+Qed.
 
 Lemma release_spec γ l P :
   {{{ is_lock γ l P ∗ locked γ ∗ P }}} release l {{{ RET #(); True }}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros "%Φ ((%lo & %ln & -> & #I) & [%o Hexcl] & HP) HΦ".
+  wp_lam.
+  wp_pures.
+  wp_bind (! _)%E.
+  iInv "I" as "(%o' & %n & Hlo & Hln & [Hγ [[>Hexcl' _]|Ho]])".
+  {
+    iPoseProof (own_valid_2 with "Hexcl Hexcl'") as "%H".
+    rewrite auth_frag_valid /= in H.
+    rewrite pair_valid /= in H.
+    by destruct H as [H _].
+  }
+  wp_load.
+  iPoseProof (own_valid_2 with "Hγ Hexcl") as "%H".
+  rewrite auth_both_valid_discrete /= in H.
+  destruct H as [H _].
+  rewrite pair_included in H.
+  destruct H as [H _].
+  rewrite Excl_included in H.
+  destruct H.
+  iModIntro.
+  iSplitL "Hlo Hln Hγ Ho".
+  { iExists o, n. iFrame. }
+  clear n.
+  wp_pures.
+  rewrite Z.add_comm -(Nat2Z.inj_add 1) /=.
+  iInv "I" as "(%o' & %n & Hlo & Hln & [Hγ [[>Hexcl' _]|Ho]])". 
+  {
+    iPoseProof (own_valid_2 with "Hexcl Hexcl'") as "%H".
+    rewrite auth_frag_valid /= in H.
+    rewrite pair_valid /= in H.
+    by destruct H as [H _].
+  }
+  wp_store.
+  iPoseProof (own_valid_2 with "Hγ Hexcl") as "%H".
+  rewrite auth_both_valid_discrete /= in H.
+  destruct H as [H _].
+  rewrite pair_included in H.
+  destruct H as [H _].
+  rewrite Excl_included in H.
+  destruct H.
+  iCombine "Hγ Hexcl" as "Hγ".
+  iMod (own_update _ _ (● (Excl' (S o), GSet (set_seq 0 n)) ⋅ ◯ (Excl' (S o), ε)) with "Hγ") as "[Hγ Hexcl]".
+  {
+    apply auth_update.
+    apply prod_local_update_1.
+    apply option_local_update.
+    by apply exclusive_local_update.
+  }
+  iModIntro.
+  iSplitR "HΦ".
+  - iNext.
+    iExists (S o), n.
+    iFrame.
+    iLeft.
+    iFrame.
+  - by iApply "HΦ".
+Qed.
 
 End proofs.

@@ -196,14 +196,33 @@ Qed.
 Lemma mk_counter_spec :
   {{{ True }}} mk_counter #() {{{ c γ, RET c; is_counter c γ 0}}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros "%Φ _ HΦ".
+  wp_lam.
+  wp_alloc l as "Hl".
+  iMod alloc_initial_state as "(%γ & Hγ & Hγ')".
+  iApply "HΦ".
+  iExists l.
+  iSplitR; first done.
+  iFrame.
+  iApply inv_alloc.
+  iNext.
+  iExists 0.
+  iFrame.
+Qed.
 
 Lemma read_spec c γ n :
   {{{ is_counter c γ n }}} read c {{{ (u : nat), RET #u; ⌜n ≤ u⌝ }}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros "%Φ (%l & -> & #Hγ' & #HI) HΦ".
+  wp_lam.
+  iInv "HI" as "(%m & Hl & Hγ)".
+  wp_load.
+  iModIntro.
+  iPoseProof (state_valid with "Hγ Hγ'") as "%H".
+  iSplitL "Hl Hγ".
+  - iExists m. iNext. by iFrame.
+  - by iApply ("HΦ" $! m).
+Qed.
 
 Lemma incr_spec c γ n :
   {{{ is_counter c γ n }}}
@@ -227,8 +246,27 @@ Proof.
     injection e as e.
     apply (inj Z.of_nat) in e.
     subst m'.
-    (* exercise *)
-Admitted.
+    rewrite Z.add_comm -(Nat2Z.inj_add 1) /=.
+    iPoseProof (state_valid with "Hγ Hγ'") as "%H".
+    iClear "Hγ'".
+    iMod (update_state with "Hγ") as "[Hγ #Hγ']".
+    iModIntro.
+    iSplitL "Hl Hγ".
+    + iExists (S m). iFrame.
+    + wp_pures.
+      iApply ("HΦ" $! m).
+      iSplitR; first done.
+      iExists l.
+      iSplitR; first done.
+      rewrite -(max_l (S m) (S n)); last by apply le_n_S.
+      by iDestruct "Hγ'" as "[_ $]".
+  - wp_cmpxchg_fail.
+    iModIntro.
+    iSplitL "Hl Hγ".
+    { iExists m'. iFrame. }
+    wp_pures.
+    by wp_apply "IH".
+Qed.
 
 (* ================================================================= *)
 (** ** A Simple Counter Client *)
@@ -249,8 +287,20 @@ Lemma par_incr :
     read "c"
   {{{ n, RET #(S n); True }}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros "%Φ _ HΦ".
+  wp_apply mk_counter_spec; first done.
+  iIntros "%c %γ #Hγ".
+  wp_pures.
+  wp_apply (wp_par (λ _, is_counter c γ 1) (λ _, is_counter c γ 1)).
+  1, 2: iApply (incr_spec with "Hγ").
+  1, 2: iIntros "!> %n [_ $]".
+  iClear "Hγ".
+  iIntros "%v1 %v2 [#Hγ _] !>".
+  wp_pures.
+  wp_apply (read_spec with "Hγ").
+  iIntros ([|n] H); first inversion H.
+  by iApply "HΦ".
+Qed.
 
 End spec1.
 End spec1.
@@ -407,22 +457,52 @@ Qed.
 Lemma mk_counter_spec :
   {{{ True }}} mk_counter #() {{{ c γ, RET c; is_counter c γ 0 1}}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros "%Φ _ HΦ".
+  wp_lam; wp_alloc l as "Hl".
+  iMod alloc_initial_state as "(%γ & Hγ & Hγ')".
+  iApply "HΦ".
+  iExists l.
+  iSplitR; first done.
+  iFrame.
+  iApply inv_alloc.
+  iExists 0.
+  iFrame.
+Qed.
 
 Lemma read_spec (c : val) (γ : gname) (n : nat) (q : Qp) :
   {{{ is_counter c γ n q }}}
     read c
   {{{ (u : nat), RET #u; is_counter c γ n q ∗ ⌜n ≤ u⌝ }}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros "%Φ (%l & -> & Hγ' & #I) HΦ".
+  wp_lam.
+  iInv "I" as "(%m & Hl & Hγ)".
+  wp_load.
+  iPoseProof (state_valid with "Hγ Hγ'") as "%H".
+  iModIntro.
+  iSplitL "Hl Hγ"; iFrame.
+  iApply "HΦ".
+  iSplitL.
+  - iExists l. by iFrame "Hγ' I".
+  - done.
+Qed.
 
 Lemma read_spec_full (c : val) (γ : gname) (n : nat) :
   {{{ is_counter c γ n 1 }}} read c {{{ RET #n; is_counter c γ n 1 }}}.
 Proof.
-  (* exercise *)
-Admitted.
+  iIntros "%Φ (%l & -> & Hγ' & #I) HΦ".
+  wp_lam.
+  iInv "I" as "(%m & Hl & Hγ)".
+  wp_load.
+  iPoseProof (state_valid_full with "Hγ Hγ'") as "#<-".
+  iModIntro.
+  iSplitL "Hl Hγ"; iFrame.
+  iApply "HΦ".
+  iExists l.
+  iSplitR "Hγ'".
+  - done.
+  - iFrame "Hγ' I".
+Qed.
 
 Lemma incr_spec (c : val) (γ : gname) (n : nat) (q : Qp) :
   {{{ is_counter c γ n q }}}
@@ -446,8 +526,26 @@ Proof.
     apply (inj Z.of_nat) in e.
     subst m'.
     wp_cmpxchg_suc.
-    (* exercise *)
-Admitted.
+    rewrite Z.add_comm -(Nat2Z.inj_add 1) /=.
+    iPoseProof (state_valid with "Hγ Hγ'") as "%H".
+    iMod (update_state with "[$Hγ $Hγ']") as "[Hγ Hγ']".
+    iModIntro.
+    iSplitL "Hl Hγ".
+    { iExists (S m). iFrame. }
+    wp_pures.
+    iModIntro.
+    iApply "HΦ".
+    iSplitR; first done.
+    iExists l.
+    iSplitR; first done.
+    by iFrame.
+  - wp_cmpxchg_fail.
+    iModIntro.
+    iSplitL "Hl Hγ".
+    { iExists m'. iFrame. }
+    wp_pures.
+    wp_apply ("IH" with "Hγ' HΦ").
+Qed.
 
 End spec2.
 End spec2.
