@@ -158,9 +158,11 @@ Example lambda : expr :=
 Lemma lambda_spec : ⊢ WP lambda {{ v, ⌜v = #20⌝ }}.
 Proof.
   rewrite /lambda.
-  (* exercise *)
-Admitted.
-
+  wp_pures.
+  iModIntro.
+  iPureIntro.
+  reflexivity.
+Qed.
 (* ================================================================= *)
 (** ** Resources *)
 
@@ -298,7 +300,15 @@ Proof.
   wp_proj.
   wp_if.
   (* exercise *)
-Admitted.
+  wp_load; wp_let.
+  wp_cmpxchg_suc.
+  wp_proj; wp_if.
+  wp_load; wp_let.
+  wp_pure.
+  iModIntro.
+  iPureIntro.
+  reflexivity.
+Qed.
 
 (**
   We finish this section with a final remark about the points-to
@@ -635,6 +645,7 @@ Definition race_spec (l : loc) (v : val) :=
 (**
   Could we prove this specification similarly to how we proved
   [par_client]?
+  A. No. l ↦ v is not duplicable.
 *)
 
 End specifications.
